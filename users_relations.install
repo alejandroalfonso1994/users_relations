@@ -1,0 +1,80 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install, update and uninstall functions for the users_relations module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function users_relations_schema() {
+  $schema['users_personal_data'] = array(
+    'description' => 'The table for personal data of users.',
+    'fields' => array(
+      'uid' => array(
+        'description' => 'The user identifier.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'full_name' => array(
+        'description' => 'The user\'s full name.',
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('uid'),
+    'foreign keys' => array(
+      'user_id' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+    ),
+  );
+	
+  $schema['users_relations'] = array(
+    'description' => 'The table for users relations.',
+    'fields' => array(
+      'urid' => array(
+        'description' => 'The user relation identifier.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'primary_user' => array(
+        'description' => 'The user identifier.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'contact_user' => array(
+        'description' => 'The user contact identifier.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+	  'status' => array(
+        'description' => 'the status of relation.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('urid'),
+  );
+  return $schema;
+}
+
+function users_relations_update_7001() {
+if(!db_table_exists('users_personal_data') || !db_table_exists('users_relations'))
+  $schema = aurora_todaybirthdays_schema();
+  if (!db_table_exists('users_personal_data')) {
+    db_create_table('users_personal_data', $schema['users_personal_data']);
+  }
+  if (!db_table_exists('users_relations')) {
+    db_create_table('users_relations', $schema['users_relations']);
+  }
+}
