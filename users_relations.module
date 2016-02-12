@@ -1,0 +1,620 @@
+<?php
+// $Id$
+/**
+* @file
+* Module, provides the possibility to set relations between users.
+*
+* This module provides two blocks. First quest for the usesr's personal data
+* and the other to give a menu whit links to manage the users's relations.
+*/
+
+// Defined constants
+
+/**
+*  The user don't send or received any request.
+*/
+define('NO_REQUEST', 0);
+/**
+*  The user has received your request, but he don't answer it yet.
+*/
+define('REQUEST_BY_ME', 1);
+/**
+*  The user has send you a request, but you don't answer it yet.
+*/
+define('REQUEST_BY_HIM', 2);
+/**
+*  The user is your contact.
+*/
+define('CONTACT', 3);
+/**
+*  The status of the relation is 'no answered'.
+*/
+define('NO_ANSWER', 0);
+/**
+*  The status of the relation is 'accepted'.
+*/
+define('ACCEPTED', 1);
+/**
+*  The status of the relation is 'refused'.
+*/
+define('REFUSED', 2);
+
+/**
+* Implements hook_help().
+*/
+function users_relations_help($path, $arg) {
+  if ($path == 'admin/help#users_relations') {
+    return t('This module provides the possibility to make relations between users.');
+  }
+}
+
+/**
+* Implements hook_menu().
+*/
+function users_relations_menu() {
+ $items = array();
+ $items['contact/search'] = array(
+   'title' => t('Search contacts'),
+   'page callback' => 'users_relations_form_search',
+   'access arguments' => array('access content'),
+   'description' => t('Page to search contacts'),
+   'type' => MENU_CALLBACK,
+ );
+ $items['contact/request/received'] = array(
+   'title' => t('Contacts Requests Received'),
+   'page callback' => 'users_relations_form_request_received',
+   'access arguments' => array('access content'),
+   'description' => t('Page to view the contacts request received'),
+   'type' => MENU_CALLBACK,
+ );
+ $items['contact/request/send'] = array(
+   'title' => t('Contacts Requests send'),
+   'page callback' => 'users_relations_form_request_send',
+   'access arguments' => array('access content'),
+   'description' => t('Page to view the contacts request send'),
+   'type' => MENU_CALLBACK,
+ );
+ $items['contact/view'] = array(
+   'title' => t('Contacts'),
+   'page callback' => 'users_relations_form_view',
+   'access arguments' => array('access content'),
+   'description' => t('Page to view the contacts'),
+   'type' => MENU_CALLBACK,
+ );
+ return $items;
+}
+
+// Pages callback
+
+function users_relations_form_search() {
+  return drupal_get_form('users_relations_search_contact_form');
+}
+
+function users_relations_form_request_received() {
+  return drupal_get_form('users_relations_contacts_request_received_form');
+}
+
+function users_relations_form_request_send() {
+  return drupal_get_form('users_relations_contacts_request_send_form');
+}
+
+function users_relations_form_view() {
+  return drupal_get_form('users_relations_contacts_view_form');
+}
+
+// Forms
+
+function users_relations_search_contact_form($form, &$form_state) {
+
+  if (!empty($form_state['page']) && !strcmp($form_state['page'], 'show')) {
+    return users_relations_show_users_form($form, $form_state);
+  }
+
+  $form_state['page'] = 'search';
+
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name'),
+	'#attributes' => array('title' => t('Enter a partial or full name to seek users.')),
+    '#size' => 50,
+    '#maxlength' => 50,
+    '#required' => TRUE,
+  );
+  $form['search'] = array(
+    '#type' => 'submit',
+    '#value' => 'Search',
+    '#submit' => array('users_relations_search_contact_form_search_submit'),
+  );
+  return $form;
+}
+
+function users_relations_show_users_form($form, &$form_state){
+	$form['#tree'] = TRUE;
+	$form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name'),
+	'#attributes' => array('title' => t('Enter a partial or full name to seek users.')),
+    '#size' => 50,
+    '#maxlength' => 50,
+    '#required' => TRUE,
+	);
+	$form['search'] = array(
+    '#type' => 'submit',
+    '#value' => t('Search'),
+    '#submit' => array('users_relations_search_contact_form_search_submit'),
+	);
+	$founded = FALSE;
+	foreach ($form_state['result'] as $item){
+	  if(!is_content($form_state['values']['name'], $item['full_name']))
+		continue;
+	  $founded = TRUE;
+	  $uid = $item['uid'];
+	  $description = '';
+	  switch(exist_request($uid)){
+		case CONTACT:
+		  $description = t('Contact');
+		  break;
+		case REQUEST_BY_ME:
+		  $description = t('Request send');
+		  break;
+		case REQUEST_BY_HIM:
+		  $description = t('Request received');
+		  break;
+		case NO_REQUEST:
+		  $description = t('User identifier').' '.$uid;
+		  break;
+	  }
+	  $form['user'][$uid] = array(
+	    '#type' => 'fieldset',
+	  );
+	  $account = user_load($uid);
+	  $form['user'][$uid]['user_picture'] = array(
+	    '#type' => 'item',
+	    '#markup' => theme('user_picture', array('account' => $account)),
+   	  );
+	  $form['user'][$uid]['full_name'] = array(
+	    '#type' => 'item',
+	    '#title' => $item['full_name'],
+        '#description' => $description,
+   	  );
+	  /* $form['user'][$uid]['submit'] = array(                                               Si incluyo este submit el boton de adicionar contacto aparecera
+	    '#type' => 'submit',                                                                  en cada nombre pero cuando llamo al manejador de submit no se como
+	    '#value' => t('Add Contact'),                                                         informarle a que nombre se refiere el boton que ha sido pulsado. Lo
+	    '#submit' => array('users_relations_search_contact_form_add_contact_submit'),         necesito para no tener que usar el invento que hice a continuacion. 
+	  ); */
+    }
+	if(!$founded){
+	  $form['message'] = array(
+	    '#type' => 'item',
+	    '#title' => t('Any result was founded'),
+   	  );
+	  return $form;
+	}
+	if(empty($account))
+		return $form;
+	$form['index'] = array(
+      '#type' => 'textfield',
+      '#title' => "User identifier.",
+	  '#attributes' => array('title' => t('Enter the user identifier you want send it a request.')),
+      '#size' => 20,
+      '#maxlength' => 20,
+	);
+	$form['add'] = array(
+      '#type' => 'submit',
+      '#value' => t('Add Contact'),
+      '#submit' => array('users_relations_search_contact_form_add_contact_submit'),
+	);
+	return $form;
+}
+
+function users_relations_contacts_request_received_form($form, &$form_state){
+  global $user;
+  $result = db_query(
+    "SELECT primary_user FROM {users_relations} WHERE contact_user = :cuid AND status = :status",
+    array(':cuid' => $user->uid, ':status' => NO_ANSWER),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  $form['#tree'] = TRUE;
+  if(empty($result))
+		return $form;
+  foreach($result as $request){
+	$uid = $request['primary_user'];
+    $form['user'][$uid] = array(
+	  '#type' => 'fieldset',
+	);
+	$account = user_load($uid);
+	$form['user'][$uid]['user_picture'] = array(
+	'#type' => 'item',
+	'#markup' => theme('user_picture', array('account' => $account)),
+   	);
+	$form['user'][$uid]['name'] = array(
+	  '#type' => 'item',
+	  '#title' => get_name($uid),
+	  '#description' => t('User identifier').' '.$uid,
+	);
+	  /* $form['user'][$uid]['submit'] = array(
+	  '#type' => 'submit',
+	  '#value' => t('accept'),
+	  '#submit' => array('users_relations_contacts_request_form_accept_submit'),
+	  ); */
+  }
+  $form['index'] = array(
+    '#type' => 'textfield',
+    '#title' => "User identifier.",
+	'#attributes' => array('title' => t('Enter the user identifier you want answer it.')),
+    '#size' => 20,
+    '#maxlength' => 20,
+    '#required' => TRUE,
+  );
+  $form['accept'] = array(
+    '#type' => 'submit',
+    '#value' => t('accept'),
+    '#submit' => array('users_relations_contacts_request_form_accept_submit'),
+  );
+  $form['refuse'] = array(
+    '#type' => 'submit',
+    '#value' => t('Refuse'),
+    '#submit' => array('users_relations_contacts_request_form_refuse_submit'),
+  );
+  return $form;
+}
+
+function users_relations_contacts_request_send_form($form, &$form_state){
+  global $user;
+  $result = db_query(
+    "SELECT contact_user, status FROM {users_relations} WHERE primary_user = :cuid",
+    array(':cuid' => $user->uid),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  $form['#tree'] = TRUE;
+  if(empty($result))
+		return $form;
+  foreach($result as $request){
+	$uid = $request['contact_user'];
+    $form['user'][$uid] = array(
+	  '#type' => 'fieldset',
+	);
+	$account = user_load($uid);
+	$description = '';
+	switch($request['status']){
+	  case NO_ANSWER;
+	    $description = t('Don\'t answer you yet');
+		break;
+	  case ACCEPTED;
+	    $description = t('Accepted your request');
+		break;
+	  case REFUSED;
+	    $description = t('Refused your request');
+		break;
+	}
+	$form['user'][$uid]['user_picture'] = array(
+	'#type' => 'item',
+	'#markup' => theme('user_picture', array('account' => $account)),
+   	);
+	$form['user'][$uid]['name'] = array(
+	  '#type' => 'item',
+	  '#title' => get_name($uid),
+	  '#description' => $description,
+	);
+  }
+  return $form;
+}
+
+function users_relations_contacts_view_form($form, &$form_state){
+  global $user;
+  $result = db_query(
+    "SELECT contact_user FROM {users_relations} WHERE primary_user = :cuid AND status = :status",
+    array(':cuid' => $user->uid, ':status' => ACCEPTED),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  $form['#tree'] = TRUE;
+  foreach($result as $request){
+	$uid = $request['contact_user'];
+    $form['user'][$uid] = array(
+	  '#type' => 'fieldset',
+	);
+	$account = user_load($uid);
+	$form['user'][$uid]['user_picture'] = array(
+	'#type' => 'item',
+	'#markup' => theme('user_picture', array('account' => $account)),
+   	);
+	$form['user'][$uid]['name'] = array(
+	  '#type' => 'item',
+	  '#title' => get_name($uid),
+	);
+  }
+  $result = db_query(
+    "SELECT primary_user FROM {users_relations} WHERE contact_user = :cuid AND status = 1",
+    array(':cuid' => $user->uid),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  foreach($result as $request){
+	$uid = $request['primary_user'];
+    $form['user'][$uid] = array(
+	  '#type' => 'fieldset',
+	);
+	$form['user'][$uid]['name'] = array(
+	  '#type' => 'item',
+	  '#title' => get_name($uid),
+	);
+  }
+  return $form;
+}
+
+// Functions
+
+function get_name($uid){
+  $result = db_query(
+    "SELECT full_name FROM {users_personal_data} WHERE uid = :uid",
+    array(':uid' => $uid),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  foreach($result as $user)
+    return $user['full_name'];
+}
+
+function exist_request($uid){
+  global $user;
+  $result = db_query(
+    "SELECT contact_user, status FROM {users_relations} WHERE primary_user = :uid",
+    array(':uid' => $user->uid),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  foreach($result as $request)
+    if($request['contact_user'] == $uid)
+	  if($request['status'] == ACCEPTED)
+        return CONTACT;
+	  else
+		return REQUEST_BY_ME;
+  $result = db_query(
+    "SELECT primary_user, status FROM {users_relations} WHERE contact_user = :uid",
+    array(':uid' => $user->uid),
+    array('fetch' => PDO::FETCH_ASSOC)
+  )->fetchAll();
+  foreach($result as $request)
+    if($request['primary_user'] == $uid)
+	  if($request['status'] == ACCEPTED)
+        return CONTACT;
+	  else
+		return REQUEST_BY_HIM;
+  return NO_REQUEST;
+}
+
+function is_content($word, $string){
+  $word = strtolower($word);
+  $string = strtolower($string);
+  for($i = 0; $i < (strlen($string) - strlen($word) + 1); $i++){
+	  $section = '';
+	for($j = $i; $j < $i + strlen($word); $j++)
+	  $section = $section.$string[$j];
+    if(!strcmp($word, $section))
+		return TRUE;
+  }
+  return FALSE;
+}
+
+// Submits
+
+function users_relations_search_contact_form_search_submit($form, &$form_state) {
+	global $user;
+	$form_state['result'] = db_query(
+      "SELECT full_name, uid FROM {users_personal_data} WHERE uid != :uid",
+      array(':uid' => $user->uid),
+      array('fetch' => PDO::FETCH_ASSOC)
+    )->fetchAll();
+	$form_state['page'] = 'show';
+    $form_state['rebuild'] = TRUE;
+}
+
+function users_relations_search_contact_form_add_contact_submit($form, &$form_state){
+  global $user;
+  $uid = $form_state['values']['index'];
+  if(empty($uid)){
+	drupal_set_message(t('Enter a identifier.'));
+    $form_state['page'] = 'show';
+    $form_state['rebuild'] = TRUE;
+	return;
+  }
+  if(!user_load($uid)){
+	drupal_set_message(t('The identifier :uid don\'t belong to any user', array(':uid' => $uid)));
+	$form_state['page'] = 'show';
+    $form_state['rebuild'] = TRUE;
+	return;
+  }
+  if($uid == $user->uid){
+	drupal_set_message(t('The identifier :uid is yours', array(':uid' => $uid)));
+	$form_state['page'] = 'show';
+    $form_state['rebuild'] = TRUE;
+	return;
+  }
+  switch(exist_request($uid)){
+	case CONTACT:
+	  drupal_set_message(t('The user :name is your contact.', array(':name' => get_name($uid))));
+	  break;
+	case REQUEST_BY_ME:
+	  drupal_set_message(t('You had send a request to :name previously.', array(':name' => get_name($uid))));
+	  break;
+	case REQUEST_BY_HIM:
+	  drupal_set_message(t('You had received a request of :name.', array(':name' => get_name($uid))));
+	  break;
+	case NO_REQUEST:
+	  $db_insert = db_insert('users_relations')
+        ->fields(array(
+          'primary_user' => $user->uid,
+          'contact_user' => $form_state['values']['index'],
+          'status' => NO_ANSWER,
+        ))
+        ->execute();
+	  break;
+  }
+	$form_state['page'] = 'show';
+    $form_state['rebuild'] = TRUE;
+}
+
+function users_relations_contacts_request_form_accept_submit($form, &$form_state){
+  global $user;
+  $db_update = db_update('users_relations')
+    ->fields(array(
+	  'status' => ACCEPTED,
+	))
+	->condition('primary_user', $form_state['values']['index'])
+	->condition('contact_user', $user->uid)
+	->condition('status', NO_ANSWER)
+	->execute();
+  if(empty($db_update))
+	  drupal_set_message(t('Enter a valid user identifier.'));
+  $form_state['rebuild'] = TRUE;
+}
+
+function users_relations_contacts_request_form_refuse_submit($form, &$form_state){
+  global $user;
+  $db_update = db_update('users_relations')
+    ->fields(array(
+	  'status' => REFUSED,
+	))
+	->condition('primary_user', $form_state['values']['index'])
+	->condition('contact_user', $user->uid)
+	->condition('status', NO_ANSWER)
+	->execute();
+	if(empty($db_update))
+	  drupal_set_message(t('Enter a valid user identifier.'));
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+* Implements hook_user_login().
+*/
+function users_relations_user_login(&$edit, $account) {
+  global $user;
+  $exist = FALSE;
+  $uids = db_query(
+      "SELECT uid FROM {users_personal_data}",
+      array(),
+      array('fetch' => PDO::FETCH_ASSOC)
+    )->fetchAll();
+  foreach($uids as $id){
+	if($id['uid'] == $user->uid)
+	  $exist = TRUE;
+  }
+  if(!$exist)
+	db_update('block')
+	->fields(array(
+	  'status' => 1,
+	))
+	->condition('delta', 'personal_data')
+	->execute();
+  else
+	db_update('block')
+	  ->fields(array(
+	    'status' => 0,
+	  ))
+	  ->condition('delta', 'personal_data')
+	  ->execute();
+  db_update('block')
+	->fields(array(
+	  'status' => 1,
+	))
+	->condition('delta', 'contacts')
+	->execute();
+}
+
+/**
+* Implements hook_user_logout().
+*/
+function users_relations_user_logout($account) {
+  db_update('block')
+	->fields(array(
+	  'status' => 0,
+	))
+	->condition('delta', 'personal_data')
+	->execute();
+  db_update('block')
+	->fields(array(
+	  'status' => 0,
+	))
+	->condition('delta', 'contacts')
+	->execute();
+}
+
+/**
+* Implements hook_block_info().
+*/
+function users_relations_block_info() {
+  $blocks = array();
+  $blocks['personal_data'] = array(
+    'info' => t('A form to get the personal data.'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+  $blocks['contacts'] = array(
+    'info' => t('A menu to manage contacts.'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+  return $blocks;
+}
+
+/**
+* Implements hook_block_view().
+*/
+function users_relations_block_view($delta = '') {
+  $block = array();
+  $list = array();
+  
+  $list[] = t('<a href="@menu">Search</a>', array('@menu' => url('contact/search')));
+  $list[] = t('<a href="@menu">Requests received</a>', array('@menu' => url('contact/request/received')));
+  $list[] = t('<a href="@menu">Requests send</a>', array('@menu' => url('contact/request/send')));
+  $list[] = t('<a href="@menu">Contacts</a>', array('@menu' => url('contact/view')));
+  
+  $theme_args = array('items' => $list, 'type' => 'ul');
+  $content = theme('item_list', $theme_args);
+  
+  switch($delta){
+    case 'personal_data':
+    $block = array(
+      'subject' => t('Personal Data'),
+      'content' => drupal_get_form('personal_data_form'),
+    );
+	break;
+    case 'contacts':
+    $block = array(
+      'subject' => t('Contacts menu'),
+      'content' => $content,
+    );
+	break;
+  }
+  return $block;
+}
+
+// Forms for blocks
+
+function personal_data_form($form, &$form_state){
+  $form['full_name'] = array(
+    '#type' => 'textfield',
+	'#title' => t('Full Name'),
+	'#attributes' => array('title' => t('Enter your full name.')),
+	'#size' => 20,
+	'#required' => TRUE,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+	'#value' => t('Save'),
+	'#submit' => array('personal_data_form_submit'),
+  );
+  return $form;
+}
+
+function personal_data_form_submit($form, &$form_state){
+  global $user;
+  db_insert('users_personal_data')
+    ->fields(array(
+	  'uid' => $user->uid,
+	  'full_name' => $form_state['values']['full_name']
+	  ))
+	->execute();
+  db_update('block')
+	->fields(array(
+	  'status' => 0,
+	))
+	->condition('delta', 'personal_data')
+	->execute();
+  drupal_set_message(t('Your personal data has been saved'));
+}
