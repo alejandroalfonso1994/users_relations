@@ -1,0 +1,7 @@
+;$Id$
+name = Users Relations
+description = Provide the possibility to set relations between users.
+package = Users Relations.
+core = 7.x
+
+files[] = users_relations.module
